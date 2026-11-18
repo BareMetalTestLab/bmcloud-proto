@@ -1,0 +1,27 @@
+# nanopb field limits for the stand firmware (MCU build).
+# The server (prost) and the PC agent ignore this file.
+
+bmcloud.Capabilities.firmware_version max_length:32
+bmcloud.Capabilities.peripherals      max_count:16
+bmcloud.Capabilities.peripherals      max_length:16
+
+bmcloud.StreamData.data          max_size:1024
+
+bmcloud.CanFrame.data            max_size:8
+
+bmcloud.Event.kind               max_length:24
+bmcloud.Event.data               max_size:512
+
+bmcloud.JobReport.error          max_length:128
+
+bmcloud.Ack.for_kind             max_length:24
+bmcloud.Error.text               max_length:64
+
+bmcloud.Firmware.sha256          max_size:32
+
+bmcloud.StreamOpen.peripheral    max_length:16
+
+bmcloud.TransferBegin.sha256     max_size:32
+bmcloud.TransferChunk.data       max_size:16384
+
+# StreamOpen configs have no variable-size fields; nothing to bound.

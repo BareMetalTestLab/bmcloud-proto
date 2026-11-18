@@ -1,0 +1,60 @@
+// bmcloud peripheral streams: the payload half of the device channel.
+// Streamed inside the DeviceMessage / ServerMessage envelopes (device.proto):
+// a stream_id is assigned by the server in StreamOpen and reused in every
+// StreamData / StreamClose until the stream ends.
+//
+// Evolution rules: same as device.proto — never reuse a field number,
+// removed fields get `reserved`, unknown fields must be skipped.
+
+syntax = "proto3";
+
+package bmcloud;
+
+// ------------------------------------------------------------- payloads, both ways
+
+message StreamData {
+  uint32 stream_id    = 1;       // assigned by the server in StreamOpen
+  uint64 timestamp_us = 2;       // stamped at the pin, the stand's clock
+  oneof payload {
+    bytes    data  = 3;          // UART / RTT / RS232 / RS485 byte flow
+    CanFrame frame = 4;          // CAN
+    Event    event = 5;          // structured events (registers, ...)
+  }
+}
+
+message CanFrame {
+  uint32 id       = 1;
+  bytes  data     = 2; // 0..8 bytes for classic CAN
+  bool   extended = 3; // 29-bit id
+  bool   remote   = 4; // RTR
+}
+
+// Structured events: crash registers now, reset reasons and more later.
+// `kind` selects how `data` decodes; keep kinds documented in the repo README.
+message Event {
+  string kind = 1;   // "registers" | "coredump" | "reset_reason"
+  bytes  data = 2;
+}
+
+// ---------------------------------------------------------------- server → stand
+
+message StreamOpen {
+  uint32 stream_id  = 1;    // server-assigned, reused in StreamData/Close
+  string peripheral = 2;    // must be one of Capabilities.peripherals
+  oneof config {
+    UartConfig uart = 3;
+    CanConfig  can  = 4;
+  }
+}
+
+message UartConfig {
+  uint32 baud = 1;          // 0 = keep the current setting
+}
+
+message CanConfig {
+  uint32 bitrate = 1;       // 0 = keep the preset
+}
+
+message StreamClose {
+  uint32 stream_id = 1;
+}

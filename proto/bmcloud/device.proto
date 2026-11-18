@@ -1,0 +1,120 @@
+// bmcloud device channel contract: the WSS protocol between the stand
+// (or PC agent) and the bmcloud server.
+//
+// One WSS binary frame = exactly one encoded envelope:
+// DeviceMessage from the stand, ServerMessage from the server.
+// Control frames (capabilities, heartbeat, jobs, acks) always overtake bulk
+// chunks in the send queue — on both ends.
+//
+// Evolution rules:
+//   - never reuse a field number; removed fields get `reserved`;
+//   - unknown fields must be skipped (default protobuf behavior);
+//   - tag releases vX.Y.Z; consumers pin the tag in their submodule.
+
+syntax = "proto3";
+
+package bmcloud;
+
+// Peripheral stream payloads (StreamData, StreamOpen, …) live in
+// streams.proto — same package, imported below.
+import "bmcloud/streams.proto";
+
+// ---------------------------------------------------------------- stand → server
+
+message DeviceMessage {
+  oneof msg {
+    Capabilities capabilities = 1; // after connect, and again whenever the set changes
+    Heartbeat    heartbeat    = 2; // every ~10 s, also carries the state
+    JobReport    job_report   = 3; // flashing progress and result
+    StreamData   stream_data  = 4; // peripheral payloads, both directions
+    TransferAck  transfer_ack = 5; // firmware download ack window
+  }
+}
+
+message Capabilities {
+  uint32          protocol_version = 1; // this schema's major.minor, e.g. 1
+  string          firmware_version = 2; // the stand firmware build id
+  repeated string peripherals      = 3; // "uart0", "rs232_0", "can0", "gpio0"...
+}
+
+message Heartbeat {
+  State state = 1;
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_ONLINE      = 1;
+    STATE_BUSY        = 2;
+    STATE_ERROR       = 3;
+  }
+}
+
+message JobReport {
+  uint64 job_id = 1;
+  Status status = 2;  // JOB_FLASHING claims the job (re-send during a long flash to refresh the watchdog); JOB_DONE / JOB_FAILED finish it
+  string error  = 3;  // set for STATUS_FAILED
+  enum Status {
+    JOB_UNSPECIFIED = 0;
+    JOB_FLASHING    = 1;
+    JOB_DONE        = 2;
+    JOB_FAILED      = 3;
+  }
+}
+
+// ---------------------------------------------------------------- server → stand
+
+message ServerMessage {
+  oneof msg {
+    Ack           ack            = 1;  // generic reply to capabilities/heartbeat
+    Error         error          = 2;  // protocol-level error, not a job error
+    Job           job            = 3;  // pushed: flash this firmware
+    StreamOpen    stream_open    = 4;
+    StreamClose   stream_close   = 5;
+    StreamData    stream_data    = 6;  // writes toward the peripheral
+    TransferBegin transfer_begin = 7;  // blob download begins
+    TransferChunk transfer_chunk = 8;  // 8–16 KB, overtaken by control
+    TransferEnd   transfer_end   = 9;
+  }
+}
+
+message Ack {
+  string for_kind = 1;           // which message kind is acknowledged
+}
+
+message Error {
+  string text = 1;
+}
+
+// Pushed at job creation and again on reconnect while the job is still
+// pending (at-least-once delivery — the stand dedupes by job_id).
+message Job {
+  uint64   job_id   = 1;
+  Firmware firmware = 2;
+}
+
+message Firmware {
+  uint64 firmware_id = 1;
+  uint64 size        = 2;   // bytes
+  bytes  sha256      = 3;   // 32 bytes; verified BEFORE flashing
+}
+
+// Blob transfer, server → stand (firmware downloads). Chunks of 8–16 KB;
+// control frames overtake them; sha256 verified at TransferEnd.
+message TransferBegin {
+  uint32 transfer_id = 1;   // server-assigned
+  uint64 total_size  = 2;
+  bytes  sha256      = 3;    // verified by the receiver at TransferEnd
+}
+
+message TransferChunk {
+  uint32 transfer_id = 1;
+  uint64 offset      = 2;
+  bytes  data        = 3;   // 8–16 KB
+}
+
+message TransferEnd {
+  uint32 transfer_id = 1;
+}
+
+message TransferAck {
+  uint32 transfer_id    = 1;
+  uint64 received_bytes = 2;     // cumulative; the sender keeps a small window
+}
